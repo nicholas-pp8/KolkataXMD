@@ -1,164 +1,213 @@
 // --- Core Baileys and Node.js Modules ---
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
 const path = require('path');
 const P = require('pino'); // For logging
 const fs = require('fs'); // Node.js built-in file system module
 
 // Load environment variables from .env file (for API keys like CLOUDINARY_URL)
-require('dotenv').config(); // <--- This line is CRITICAL for loading your .env file
+require('dotenv').config();
 
 
 // --- Helper Functions ---
 const delay = ms => new Promise(res => setTimeout(res, ms));
 
-// Your WhatsApp phone number (for pairing code and sending self-messages)
-// IMPORTANT: This is already set to your number (918100601505).
-// Do NOT change this unless your phone number changes.
-const MY_WHATSAPP_NUMBER = '918100601505';
+// Your WhatsApp phone number (for sending self-messages later, from config.json)
+// This variable is no longer used for the pairing input prompt in this setup.
+const MY_WHATSAPP_NUMBER_FROM_CONFIG = require('./config.json').ownerNumber;
 
 
 // --- Command/Plugin Loader ---
-const commands = new Map(); // Store commands in a Map
+const commands = new Map();
 const commandFiles = fs.readdirSync(path.join(__dirname, 'commands')).filter(file => file.endsWith('.js'));
 
 for (const file of commandFiles) {
     const command = require(path.join(__dirname, 'commands', file));
-    commands.set(command.name, command); // Store command by its name (e.g., 'play', 'help', 'basic', 'enhance')
-    if (command.command) { // If command has a specific prefix (e.g., '.play', '!menu', '!enhance')
-        commands.set(command.command, command); // Also store by its command prefix for quick lookup
+    commands.set(command.name, command);
+    if (command.commands && Array.isArray(command.commands)) {
+        command.commands.forEach(cmdName => commands.set(cmdName, command));
+    } else if (command.command) {
+        commands.set(command.command, command);
     }
 }
 console.log(`Loaded ${commandFiles.length} command files.`);
 
 
-// --- Main Bot Logic Function ---
-async function connectToWhatsApp() {
-    // Authentication State Management: Stores session data locally
-    const { state, saveCreds } = await useMultiFileAuthState(path.join(__dirname, 'baileys_auth_info'));
+// --- Main Bot Logic Function - EXPORTED for server.js to use ---
+// It now accepts the phone number for pairing and a callback function for status updates
+module.exports = {
+    connectToWhatsApp: async (phoneNumberForPairing, statusCallback) => { // <--- KEY CHANGE HERE: Accepts parameters
 
-    // Logger setup for Baileys: Set to 'silent' for minimal output in console
-    const logger = P({ level: 'silent' });
+        // Authentication State Management
+        const { state, saveCreds } = await useMultiFileAuthState(path.join(__dirname, 'baileys_auth_info'));
+        const logger = P({ level: 'silent' });
 
-    // Initialize WhatsApp Socket: Connects to WhatsApp servers
-    const sock = makeWASocket({
-        auth: state,
-        printQRInTerminal: true, // Will still print QR, but pairingCode takes precedence
-        useMobile: true,         // ESSENTIAL for pairing code and mobile login style
-        logger: logger,
-        browser: ['Termux (Linux)', 'Chrome', '1.0.0'], // Custom browser info for WhatsApp Web/Linked Devices
-    });
+        // Initialize WhatsApp Socket
+        const sock = makeWASocket({
+            auth: state,
+            printQRInTerminal: false, // <--- KEY CHANGE: QR code always disabled in terminal for web pairing
+            useMobile: true,
+            logger: logger,
+            browser: [require('./config.json').botName + ' (WebPair)', 'Chrome', '1.0.0'], // <--- Uses botName from config
+        });
 
-    // --- Pairing Code Logic (for first-time login or after deleting session) ---
-    // This block runs if the bot is not yet registered with WhatsApp
-    if (!sock.authState.creds.registered) {
-        try {
-            console.log('Attempting to request pairing code...');
-            const cleanedPhoneNumber = MY_WHATSAPP_NUMBER.replace(/\D/g, ''); // Ensure only digits for the phone number
-            const pairingCode = await sock.requestPairingCode(cleanedPhoneNumber); // Request the 8-digit pairing code
+        // --- Pairing Code Logic (for first-time login) ---
+        // This block runs if the bot is not yet registered with WhatsApp
+        if (!sock.authState.creds.registered) {
+            try {
+                console.log(`Bot initiating pairing for: ${phoneNumberForPairing} (from web input)`);
+                // Use the number passed from server.js for pairing
+                const pairingCode = await sock.requestPairingCode(phoneNumberForPairing);
 
-            console.log('\n======================================');
-            console.log('YOUR WHATSAPP PAIRING CODE IS:');
-            console.log(`  ${pairingCode}`); // Display the pairing code prominently
-            console.log('======================================');
-            console.log('Open WhatsApp on your phone, go to Linked Devices, then "Link with phone number" and enter this code.');
-            // Reminder: The QR code might still show above this. Focus on the 8-digit code.
-        } catch (error) {
-            console.error('Error requesting pairing code:', error);
-            console.log('Falling back to QR code if displayed or ensure correct phone number/WhatsApp version.');
-        }
-    }
-
-    // --- Event Listeners ---
-
-    // Connection Updates (e.g., QR code display, connection status changes)
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-
-        if (qr) {
-            // Display QR code (might still show even when pairing code is preferred)
-            qrcode.generate(qr, { small: true });
-            console.log('QR code displayed above. Please try the pairing code below first.');
-        }
-
-        if (connection === 'close') {
-            // Handle disconnection and attempt to reconnect
-            const shouldReconnect = (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut);
-            console.log('Connection closed due to ', lastDisconnect.error?.output?.payload?.message || lastDisconnect.error, ', reconnecting ', shouldReconnect);
-
-            if (lastDisconnect.error?.output?.statusCode === DisconnectReason.loggedOut) {
-                console.log('Logged out. Please delete baileys_auth_info and restart the bot to log in again.');
-            } else if (shouldReconnect) {
-                await delay(5000); // Wait 5 seconds before attempting to reconnect
-                connectToWhatsApp();
-            }
-        } else if (connection === 'open') {
-            // Successful Connection: Bot is online and ready
-            console.log('Client is ready! WhatsApp connection opened.');
-
-            // --- Send Session Confirmation Message to Personal Chat ---
-            const myJid = MY_WHATSAPP_NUMBER + '@s.whatsapp.net'; // Construct your WhatsApp JID
-
-            // Add a small delay to ensure the chat is fully ready to receive messages
-            setTimeout(async () => {
-                try {
-                    // Bot's name changed to NicholasXMD~ here
-                    const messageText = `NicholasXMD~ Bot Session Active! 🎉\n\nBot ID: ${sock.user.id}\nStatus: Online`;
-                    await sock.sendMessage(myJid, { text: messageText });
-                    console.log(`Session ID sent to your personal chat (${MY_WHATSAPP_NUMBER}).`);
-                } catch (error) {
-                    console.error('Failed to send session ID to personal chat:', error);
+                if (statusCallback) { // Send pairing code to web client
+                    statusCallback({ type: 'pairingCode', code: pairingCode });
                 }
-            }, 3000); // 3-second delay
+                console.log(`Pairing code generated: ${pairingCode}`);
+
+            } catch (error) {
+                console.error('Error requesting pairing code for web pairing:', error);
+                if (statusCallback) {
+                    statusCallback({ type: 'error', message: `Pairing failed: ${error.message}` });
+                }
+                // Re-throw the error so server.js knows the connection failed
+                throw error;
+            }
+        } else {
+            console.log("Bot already registered. Attempting to connect with saved credentials...");
+            if (statusCallback) {
+                statusCallback({ type: 'status', message: 'Connecting with saved credentials...' });
+            }
         }
-    });
 
-    // Incoming Messages: Main logic for handling user commands
-    sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        if (type === 'notify') { // 'notify' indicates new incoming messages
-            for (const msg of messages) {
-                // Ignore messages sent by the bot itself and status updates
-                if (!msg.key.fromMe && msg.key.remoteJid !== 'status@broadcast') {
-                    const senderId = msg.key.remoteJid; // The JID (WhatsApp ID) of the sender
-                    const messageText = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+        // --- Event Listeners ---
 
-                    console.log(`[${senderId}] Received: ${messageText}`);
+        // Connection Updates (e.g., QR code display, connection status changes)
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, lastDisconnect, qr } = update;
 
-                    // --- Command Dispatcher ---
-                    const lowerCaseMessage = messageText.toLowerCase();
+            if (qr) {
+                // Send QR to web client (even if printQRInTerminal is false, Baileys might generate it for fallback)
+                if (statusCallback) {
+                    statusCallback({ type: 'qr', qr: qr });
+                }
+                console.log('QR code received and sent to web client.');
+            }
 
-                    let commandFound = false;
+            if (connection === 'close') {
+                const shouldReconnect = (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut);
+                console.log('Connection closed due to ', lastDisconnect.error?.output?.payload?.message || lastDisconnect.error, ', reconnecting ', shouldReconnect);
 
-                    // Check for specific prefixed commands first (like .play, !menu, !enhance)
-                    for (const [key, command] of commands.entries()) {
-                        // Check if the message starts with the command's prefix (e.g., '.play ', '!menu', '!enhance')
-                        // Or if it's an image message with the command as caption (for !enhance)
-                        if (command.command && (lowerCaseMessage.startsWith(command.command) || (msg.message?.imageMessage && lowerCaseMessage === command.command))) {
-                            // Execute the command, passing relevant data and the 'commands' map itself (for !menu)
-                            await command.execute(sock, msg, senderId, messageText, commands);
-                            commandFound = true;
-                            break; // Stop after finding the first matching command
+                if (statusCallback) {
+                    statusCallback({ type: 'status', message: 'Bot disconnected. Reconnecting...' });
+                }
+
+                if (botSettings.alwaysOnline && presenceInterval) {
+                    clearInterval(presenceInterval);
+                    presenceInterval = null;
+                    console.log("Always Online feature deactivated due to disconnect.");
+                }
+
+                if (lastDisconnect.error?.output?.statusCode === DisconnectReason.loggedOut) {
+                    console.log('Logged out. Please refresh the web page to relink.');
+                    if (statusCallback) {
+                        statusCallback({ type: 'loggedOut', message: 'Bot logged out. Please refresh and relink.' });
+                    }
+                } else if (shouldReconnect) {
+                    await delay(5000);
+                    // Reconnect with the original phone number for pairing and status callback
+                    connectToWhatsApp(phoneNumberForPairing, statusCallback);
+                }
+            } else if (connection === 'open') {
+                console.log('Client is ready! WhatsApp connection opened.');
+                if (statusCallback) {
+                    statusCallback({ type: 'connected', message: 'Bot is connected to WhatsApp!' });
+                }
+
+                let presenceInterval;
+                if (botSettings.alwaysOnline) {
+                    presenceInterval = setInterval(() => {
+                        sock.sendPresenceUpdate('available');
+                    }, 60 * 1000);
+                    console.log("Always Online feature activated.");
+                }
+
+                // Send Session Confirmation Message to Owner's Chat
+                const config = require('./config.json'); // Re-load config here to get ownerNumber
+                const ownerJid = config.ownerNumber + '@s.whatsapp.net';
+                setTimeout(async () => {
+                    try {
+                        const messageText = `${config.sessionIdPrefix} Bot Session Active! 🎉\n\nBot ID: ${sock.user.id}\nStatus: Online`;
+                        await sock.sendMessage(ownerJid, { text: messageText });
+                        console.log(`Session ID sent to owner's chat (${config.ownerNumber}).`);
+                    } catch (error) {
+                        console.error('Failed to send session ID to owner chat:', error);
+                    }
+                }, 3000);
+            }
+        });
+
+        // Incoming Messages: Main logic for handling user commands
+        sock.ev.on('messages.upsert', async ({ messages, type }) => {
+            if (type === 'notify') {
+                for (const msg of messages) {
+                    if (!msg.key.fromMe && msg.key.remoteJid !== 'status@broadcast') {
+                        const senderId = msg.key.remoteJid;
+                        const messageText = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+
+                        console.log(`[${senderId}] Received: ${messageText}`);
+
+                        if (botSettings.autoTyping) {
+                            await sock.sendPresenceUpdate('composing', senderId);
+                        }
+
+                        if (botSettings.autoReact) {
+                            await sock.sendMessage(msg.key.remoteJid, {
+                                react: {
+                                    text: '👍',
+                                    key: msg.key
+                                }
+                            });
+                            console.log(`Auto-reacted to message from ${senderId}`);
+                        }
+
+                        // --- Command Dispatcher ---
+                        const lowerCaseMessage = messageText.toLowerCase();
+
+                        let commandFound = false;
+                        const config = require('./config.json'); // Re-load config for commands
+
+                        for (const [key, command] of commands.entries()) {
+                            if (command.commands && Array.isArray(command.commands)) {
+                                if (command.commands.includes(lowerCaseMessage.split(' ')[0])) {
+                                    await command.execute(sock, msg, senderId, messageText, commands, botSettings, config);
+                                    commandFound = true;
+                                    break;
+                                }
+                            } else if (command.command) {
+                                if (lowerCaseMessage.startsWith(command.command) || (msg.message?.imageMessage && lowerCaseMessage === command.command)) {
+                                    await command.execute(sock, msg, senderId, messageText, commands, botSettings, config);
+                                    commandFound = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!commandFound && commands.has('basic')) {
+                            await commands.get('basic').execute(sock, msg, senderId, messageText, commands, botSettings, config);
                         }
                     }
-
-                    // If no specific prefixed command was found, check for basic text commands (e.g., "hello", "how are you?")
-                    if (!commandFound && commands.has('basic')) {
-                        // The 'basic' module handles multiple non-prefixed commands internally
-                        await commands.get('basic').execute(sock, msg, senderId, messageText);
-                    }
                 }
             }
+        });
+
+        sock.ev.on('creds.update', saveCreds);
+
+        // This function is no longer used for Baileys pairing within this connectToWhatsApp logic.
+        // It's conceptually there if needed for other parts.
+        async function promptForPhoneNumber() {
+            return require('./config.json').ownerNumber;
         }
-    });
+    }, // End of connectToWhatsApp function export
+}; // End of module.exports
 
-    // Credential Updates: Save authentication state periodically
-    sock.ev.on('creds.update', saveCreds);
-
-    // --- Function to provide phone number (for internal use by Baileys) ---
-    async function promptForPhoneNumber() {
-        return MY_WHATSAPP_NUMBER;
-    }
-}
-
-// --- Start the Bot Connection Process ---
-connectToWhatsApp();
+// NOTE: connectToWhatsApp() is NO LONGER CALLED HERE DIRECTLY.
+// It will be called by server.js when a client connects and provides a number.

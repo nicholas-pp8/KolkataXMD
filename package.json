@@ -18,11 +18,14 @@
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.18",
     "axios": "^1.10.0",
+    "cheerio": "^1.1.0",
     "cloudinary": "^2.7.0",
     "dotenv": "^17.2.0",
+    "express": "^5.1.0",
     "fluent-ffmpeg": "^2.1.2",
     "pino": "^9.0.0",
     "qrcode-terminal": "^0.12.0",
+    "ws": "^8.18.3",
     "ytdl-core": "^4.11.5"
   }
 }

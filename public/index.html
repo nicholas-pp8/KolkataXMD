@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NicholasXMD Bot Pairing</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background-color: #f0f2f5; color: #333; }
+        .container { background-color: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); text-align: center; max-width: 400px; width: 90%; }
+        h1 { color: #0056b3; margin-bottom: 10px; }
+        p { margin-bottom: 20px; line-height: 1.5; }
+        #qrCode { margin: 20px auto; border: 1px solid #ddd; padding: 10px; display: inline-block; }
+        #status { font-size: 1.1em; color: #555; margin-top: 15px; font-weight: bold; }
+        #pairingCodeDisplay { font-size: 1.4em; font-weight: bold; color: #28a745; margin-top: 15px; word-break: break-all; }
+        #phoneInputContainer { margin-top: 20px; display: none; /* Hidden by default */ }
+        #phoneInput { width: calc(100% - 22px); padding: 10px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; }
+        button { background-color: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 1em; }
+        button:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>NicholasXMD Bot Pairing</h1>
+        <p>To link your WhatsApp, please follow the instructions below.</p>
+
+        <div id="phoneInputContainer">
+            <input type="tel" id="phoneInput" placeholder="Enter your WhatsApp phone number (e.g., 919876543210)">
+            <button id="submitPhone">Get Pairing Code</button>
+        </div>
+
+        <div id="qrCode"></div>
+        <p id="pairingCodeDisplay"></p>
+        <p id="status">Connecting to server...</p>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode.js/1.0.0/qrcode.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

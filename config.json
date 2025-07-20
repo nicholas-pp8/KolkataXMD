@@ -1,0 +1,37 @@
+{
+  "botName": "NicholasXMD Bot",
+  "sessionIdPrefix": "NicholasXMD~",
+  "ownerNumber": "918100601505",
+  "defaultSettings": {
+    "alwaysOnline": true,
+    "autoTyping": true,
+    "autoReact": true
+  },
+  "features": {
+    "songDownload": {
+      "enabled": true,
+      "audioBitrate": "96k",
+      "audioChannels": 1,
+      "maxVoiceMessageMB": 16,
+      "commandPrefix": ".play "
+    },
+    "imageEnhancement": {
+      "enabled": true,
+      "commandPrefix": "!enhance",
+      "defaultTransformations": [
+        { "effect": "auto_color" },
+        { "quality": "auto" },
+        { "effect": "sharpen" }
+      ]
+    },
+    "apkSearch": {
+      "enabled": true,
+      "commandPrefix": "!apk "
+    }
+  },
+  "commands": {
+    "menuCommand": "!menu",
+    "basicCommands": ["hello", "how are you?", "!ping"],
+    "settingsCommands": ["!alwaysonline", "!autotyping", "!autoreact"]
+  }
+}
