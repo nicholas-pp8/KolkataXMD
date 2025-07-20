@@ -1,0 +1,5 @@
+node_modules/
+.env
+baileys_auth_info/
+*.mp3
+*.mp4

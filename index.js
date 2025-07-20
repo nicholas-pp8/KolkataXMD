@@ -5,11 +5,8 @@ const path = require('path');
 const P = require('pino'); // For logging
 const fs = require('fs'); // Node.js built-in file system module
 
-// --- Modules for Song Download Feature ---
-const ytdl = require('ytdl-core'); // For downloading YouTube videos
-const ffmpeg = require('fluent-ffmpeg'); // Wrapper for ffmpeg commands
-// NOTE: ffmpeg-static is NOT required here as you installed ffmpeg globally via Termux's pkg.
-// fluent-ffmpeg will automatically detect the system-installed ffmpeg.
+// Load environment variables from .env file (for API keys like CLOUDINARY_URL)
+require('dotenv').config(); // <--- This line is CRITICAL for loading your .env file
 
 
 // --- Helper Functions ---
@@ -27,8 +24,8 @@ const commandFiles = fs.readdirSync(path.join(__dirname, 'commands')).filter(fil
 
 for (const file of commandFiles) {
     const command = require(path.join(__dirname, 'commands', file));
-    commands.set(command.name, command); // Store command by its name (e.g., 'play', 'help', 'basic')
-    if (command.command) { // If command has a specific prefix (e.g., '.play', '!menu')
+    commands.set(command.name, command); // Store command by its name (e.g., 'play', 'help', 'basic', 'enhance')
+    if (command.command) { // If command has a specific prefix (e.g., '.play', '!menu', '!enhance')
         commands.set(command.command, command); // Also store by its command prefix for quick lookup
     }
 }
@@ -132,19 +129,19 @@ async function connectToWhatsApp() {
 
                     let commandFound = false;
 
-                    // Check for specific prefixed commands first (like .play or !menu)
-                    // Iterate over all loaded commands to find a match
+                    // Check for specific prefixed commands first (like .play, !menu, !enhance)
                     for (const [key, command] of commands.entries()) {
-                        if (command.command && lowerCaseMessage.startsWith(command.command)) {
-                            // Execute the command, passing the 'commands' map itself for the help command
+                        // Check if the message starts with the command's prefix (e.g., '.play ', '!menu', '!enhance')
+                        // Or if it's an image message with the command as caption (for !enhance)
+                        if (command.command && (lowerCaseMessage.startsWith(command.command) || (msg.message?.imageMessage && lowerCaseMessage === command.command))) {
+                            // Execute the command, passing relevant data and the 'commands' map itself (for !menu)
                             await command.execute(sock, msg, senderId, messageText, commands);
                             commandFound = true;
                             break; // Stop after finding the first matching command
                         }
                     }
 
-                    // If no specific prefixed command was found, check for basic text commands
-                    // This handles "hello", "how are you?", "!ping" from commands/basic.js
+                    // If no specific prefixed command was found, check for basic text commands (e.g., "hello", "how are you?")
                     if (!commandFound && commands.has('basic')) {
                         // The 'basic' module handles multiple non-prefixed commands internally
                         await commands.get('basic').execute(sock, msg, senderId, messageText);
